@@ -1,5 +1,70 @@
 use std::fmt::format;
 
+fn parse_paragraph(lines: &Vec<&str>, start_line: usize) -> Vec<String> {
+    let to_be_parsed = &lines[start_line..];
+    let mut parsed = vec!(String::from("<p>"));
+    let mut italic = false;
+    let mut bold = false;
+    let mut ind = 0;
+    let mut amount_of_underscores = 0;
+    let mut amount_of_astericks = 0;
+    while !to_be_parsed[ind].is_empty() {
+        parsed.push(String::new());
+        for c in to_be_parsed[ind].chars() {
+            if c == '_' && amount_of_underscores < 3 {
+                amount_of_underscores += 1;
+            } else if amount_of_underscores != 0 {
+                match amount_of_underscores {
+                    1=> {
+                        italic = !italic;
+                        if !italic {
+                            parsed.push(String::from("</em>"));
+                        } else {
+                            parsed.push(String::from("<em>"));
+                        }
+                    }
+                    2=> {
+                        bold = !bold;
+                        if bold {
+                            parsed.push(String::from("<strong>"));
+                        } else {
+                            parsed.push(String::from("</strong>"));
+                        }
+                    }
+                    _=> {}
+                }
+                amount_of_underscores = 0;
+            }
+            if c == '*' && amount_of_astericks < 3 {
+                amount_of_astericks += 1;
+            } else if amount_of_astericks != 0 {
+                match amount_of_astericks {
+                    1=> {
+                        italic = !italic;
+                        if !italic {
+                            parsed.push(String::from("</em>"));
+                        } else {
+                            parsed.push(String::from("<em>"));
+                        }
+                    }
+                    2=> {
+                        bold = !bold;
+                        if bold {
+                            parsed.push(String::from("<strong>"));
+                        } else {
+                            parsed.push(String::from("</strong>"));
+                        }
+                    }
+                    _=> {}
+                }
+                amount_of_astericks = 0;
+            }
+
+        }
+    }
+    parsed
+}
+
 fn parse_table(lines: &Vec<&str>, start_line: usize) -> Vec<String> {
     let mut parsed = vec!(String::from("<table>"));
     let to_be_parsed = &lines[start_line..];
@@ -43,10 +108,4 @@ fn main() {
     // for line in &v {
     //     println!("{line}");
     // }
-    let mut italic = false;
-    let mut bold = false;
-    let mut paragraph = false;
-    let mut bitalic = false;
-    let mut ol = false;
-    let mut ul = false;
 }

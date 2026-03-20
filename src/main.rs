@@ -1,5 +1,35 @@
 use std::fmt::format;
 
+fn is_ol(line: &str) -> bool {
+    let mut chars = line.chars();
+    let mut found_digit = false;
+
+    while let Some(c) = chars.next() {
+        if c.is_ascii_digit() {
+            found_digit = true;
+        } else if c == '.' {
+            return found_digit; // если перед точкой были цифры → true
+        } else {
+            return false; // встретили что-то не цифру и не точку
+        }
+    }
+
+    false // дошли до конца строки без точки
+}
+
+fn parse_ul(lines: &Vec<&str>, start_line: usize) -> Vec<String> {
+    let to_be_parsed = &lines[start_line..];
+    let mut parsed = vec!(String::from("<ul>"));
+    let ind = 0;
+
+    while to_be_parsed[ind].starts_with("- ") {
+        let content = &to_be_parsed[ind][2..];
+        parsed.push(format!("   <li>{content}</li>"));
+    }
+
+    parsed.push(String::from( "</ul>" ));
+    parsed
+}
 fn parse_paragraph(lines: &Vec<&str>, start_line: usize) -> Vec<String> {
     let to_be_parsed = &lines[start_line..];
     let mut parsed = vec!(String::from("<p>"));
@@ -11,6 +41,16 @@ fn parse_paragraph(lines: &Vec<&str>, start_line: usize) -> Vec<String> {
     while !to_be_parsed[ind].is_empty() {
         parsed.push(String::new());
         for c in to_be_parsed[ind].chars() {
+            if c == '\\' && (amount_of_astericks != 0 || amount_of_underscores != 0) {
+                for _ in 0..amount_of_underscores {
+                    parsed[ind].push('_');
+                    amount_of_underscores -= 1;
+                }
+                for _ in 0..amount_of_astericks {
+                    parsed[ind].push('*');
+                    amount_of_astericks -= 1;
+                }
+            }
             if c == '_' && amount_of_underscores < 3 {
                 amount_of_underscores += 1;
             } else if amount_of_underscores != 0 {

@@ -1,4 +1,44 @@
 use std::fmt::format;
+use std::io::Lines;
+
+fn strip_ordered_list_prefix(s: &str) -> Option<&str> {
+    let mut chars = s.char_indices().peekable();
+
+    let mut has_digit = false;
+    let mut end = 0;
+
+    while let Some((i, c)) = chars.peek() {
+        if c.is_ascii_digit() {
+            has_digit = true;
+            end = i + c.len_utf8();
+            chars.next();
+        } else {
+            break;
+        }
+    }
+
+    if !has_digit {
+        return None;
+    }
+
+    if let Some((i, '.')) = chars.peek() {
+        end = i + 1;
+        chars.next();
+    } else {
+        return None;
+    }
+
+    while let Some((i, c)) = chars.peek() {
+        if c.is_whitespace() {
+            end = i + c.len_utf8();
+            chars.next();
+        } else {
+            break;
+        }
+    }
+
+    Some(&s[end..])
+}
 
 fn is_ol(line: &str) -> bool {
     let mut chars = line.chars();
@@ -17,6 +57,20 @@ fn is_ol(line: &str) -> bool {
     false // дошли до конца строки без точки
 }
 
+fn parse_ol(lines: &Vec<&str>,  start_line: usize) -> Vec<String> {
+    let to_be_parsed = &lines[start_line..];
+    let mut parsed = vec!(String::from("<ol>"));
+    let ind = 0;
+
+    while is_ol(to_be_parsed[ind]) {
+        parsed.push(format!("   <li>{}</li>", strip_ordered_list_prefix(to_be_parsed[ind]).expect( format!("Cant strip the ol header! Line: {}", to_be_parsed[0]).as_str() )));
+    }
+
+    parsed.push(String::from("</ol>"));
+
+    parsed
+}
+
 fn parse_ul(lines: &Vec<&str>, start_line: usize) -> Vec<String> {
     let to_be_parsed = &lines[start_line..];
     let mut parsed = vec!(String::from("<ul>"));
@@ -31,24 +85,35 @@ fn parse_ul(lines: &Vec<&str>, start_line: usize) -> Vec<String> {
     parsed
 }
 fn parse_paragraph(lines: &Vec<&str>, start_line: usize) -> Vec<String> {
-    let to_be_parsed = &lines[start_line..];
+    let to_be_parsed = Vec::from( &lines[start_line..]);
     let mut parsed = vec!(String::from("<p>"));
     let mut italic = false;
     let mut bold = false;
     let mut ind = 0;
     let mut amount_of_underscores = 0;
-    let mut amount_of_astericks = 0;
+    let mut amount_of_asterisks = 0;
     while !to_be_parsed[ind].is_empty() {
         parsed.push(String::new());
+
+        if to_be_parsed[ind].chars().next().expect( format!("Cant get first char! Problematic line: {}", to_be_parsed[ind]).as_str() )== '-' {
+            let ul = parse_ul(&to_be_parsed, ind);
+            parsed.extend(to_be_parsed.iter().map(|s| s.to_string()));
+            ind += ul.len();
+            continue;
+        }
+
         for c in to_be_parsed[ind].chars() {
-            if c == '\\' && (amount_of_astericks != 0 || amount_of_underscores != 0) {
+            if c != '_' && c != '*' {
+                parsed[ind].push(c);
+            }
+            if c == '\\' && (amount_of_asterisks != 0 || amount_of_underscores != 0) {
                 for _ in 0..amount_of_underscores {
                     parsed[ind].push('_');
                     amount_of_underscores -= 1;
                 }
-                for _ in 0..amount_of_astericks {
+                for _ in 0..amount_of_asterisks {
                     parsed[ind].push('*');
-                    amount_of_astericks -= 1;
+                    amount_of_asterisks -= 1;
                 }
             }
             if c == '_' && amount_of_underscores < 3 {
@@ -58,27 +123,27 @@ fn parse_paragraph(lines: &Vec<&str>, start_line: usize) -> Vec<String> {
                     1=> {
                         italic = !italic;
                         if !italic {
-                            parsed.push(String::from("</em>"));
+                            parsed[ind].push_str("</em>");
                         } else {
-                            parsed.push(String::from("<em>"));
+                            parsed[ind].push_str("<em>");
                         }
                     }
                     2=> {
                         bold = !bold;
                         if bold {
-                            parsed.push(String::from("<strong>"));
+                            parsed[ind].push_str("<strong>");
                         } else {
-                            parsed.push(String::from("</strong>"));
+                            parsed[ind].push_str("</strong>");
                         }
                     }
                     _=> {}
                 }
                 amount_of_underscores = 0;
             }
-            if c == '*' && amount_of_astericks < 3 {
-                amount_of_astericks += 1;
-            } else if amount_of_astericks != 0 {
-                match amount_of_astericks {
+            if c == '*' && amount_of_asterisks < 3 {
+                amount_of_asterisks += 1;
+            } else if amount_of_asterisks != 0 {
+                match amount_of_asterisks {
                     1=> {
                         italic = !italic;
                         if !italic {
@@ -97,10 +162,11 @@ fn parse_paragraph(lines: &Vec<&str>, start_line: usize) -> Vec<String> {
                     }
                     _=> {}
                 }
-                amount_of_astericks = 0;
+                amount_of_asterisks = 0;
             }
-
+            
         }
+        ind += 1;
     }
     parsed
 }

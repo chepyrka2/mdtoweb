@@ -54,32 +54,33 @@ fn is_ol(line: &str) -> bool {
     false // дошли до конца строки без точки
 }
 
-fn parse_ol(lines: &Vec<&str>,  start_line: usize) -> Vec<String> {
+fn parse_ol(lines: &Vec<&str>,  start_line: usize) -> (Vec<String>, usize) {
     let to_be_parsed = &lines[start_line..];
     let mut parsed = vec!(String::from("<ol>"));
-    let ind = 0;
+    let mut ind = 0;
 
-    while is_ol(to_be_parsed[ind]) {
+    while ind < to_be_parsed.len() && is_ol(to_be_parsed[ind]) {
         parsed.push(format!("    <li>{}</li>", strip_ordered_list_prefix(to_be_parsed[ind]).expect( format!("Cant strip the ol header! Line: {}", to_be_parsed[0]).as_str() )));
+        ind += 1;
     }
 
     parsed.push(String::from("</ol>"));
-
-    parsed
+    (parsed, ind)
 }
 
-fn parse_ul(lines: &Vec<&str>, start_line: usize) -> Vec<String> {
+fn parse_ul(lines: &Vec<&str>, start_line: usize) -> (Vec<String>, usize) {
     let to_be_parsed = &lines[start_line..];
     let mut parsed = vec!(String::from("<ul>"));
-    let ind = 0;
+    let mut ind = 0;
 
-    while to_be_parsed[ind].starts_with("- ") {
+    while ind < to_be_parsed.len() && to_be_parsed[ind].starts_with("- ") {
         let content = &to_be_parsed[ind][2..];
         parsed.push(format!("    <li>{content}</li>"));
+        ind += 1;
     }
 
     parsed.push(String::from( "</ul>" ));
-    parsed
+    (parsed, ind)
 }
 
 
@@ -89,51 +90,52 @@ fn parse_paragraph(lines: &Vec<&str>, start_line: usize) -> Vec<String> {
     let mut italic = false;
     let mut bold = false;
     let mut code = false;
-    let mut ind = 1;
+    let mut ind = 0;
     let mut amount_of_underscores = 0;
     let mut amount_of_asterisks = 0;
     while ind < to_be_parsed.len() && !to_be_parsed[ind].is_empty() {
-        parsed.push(if code {"    ".to_string()} else {"        ".to_string()});
+        let mut indent = if code {"".to_string()} else {"    ".to_string()};
+        parsed.push(indent.clone());
+        let last = parsed.last_mut().unwrap();
 
         if to_be_parsed[ind] == "```" {
             code = !code;
+            indent = "    ".to_string();
+            last.truncate(0);
+            last.push_str(format!("{indent}").as_str());
             let what_to_push = if code { "<pre><code>" } else { "</code></pre>" };
-            parsed[ind].push_str(what_to_push);
+            last.push_str(what_to_push);
             ind += 1;
             continue;
         }
 
         if to_be_parsed[ind].chars().next().expect( format!("Cant get first char! Problematic line: {}", to_be_parsed[ind]).as_str() )== '-' {
             let ul = parse_ul(&to_be_parsed, ind);
-            ind += ul.len();
-            parsed.extend(ul);
+            parsed.extend(ul.0);
+            ind += ul.1;
             continue;
         }
 
         if is_ol(to_be_parsed[ind]) {
             let mut ol = parse_ol(&to_be_parsed, ind);
-            ind += ol.len();
-            parsed.extend(ol);
+            parsed.extend(ol.0);
+            ind += ol.1;
             continue;
         }
 
         for c in to_be_parsed[ind].chars() {
-            if c != '_' && c != '*' {
-                parsed[ind].push(c);
-                continue;
-            }
             if c == '\\' && (amount_of_asterisks != 0 || amount_of_underscores != 0) {
                 for _ in 0..amount_of_underscores {
-                    parsed[ind].push('_');
+                    last.push('_');
                     amount_of_underscores -= 1;
                 }
                 for _ in 0..amount_of_asterisks {
-                    parsed[ind].push('*');
+                    last.push('*');
                     amount_of_asterisks -= 1;
                 }
                 continue;
             }
-            if c == '_' && amount_of_underscores < 3 {
+            if c == '_' && amount_of_underscores < 2 {
                 amount_of_underscores += 1;
                 continue;
             } else if amount_of_underscores != 0 {
@@ -141,25 +143,26 @@ fn parse_paragraph(lines: &Vec<&str>, start_line: usize) -> Vec<String> {
                     1=> {
                         italic = !italic;
                         if !italic {
-                            parsed[ind].push_str("</em>");
+                            last.push_str("</em>");
                         } else {
-                            parsed[ind].push_str("<em>");
+                            last.push_str("<em>");
                         }
                     }
                     2=> {
                         bold = !bold;
                         if bold {
-                            parsed[ind].push_str("<strong>");
+                            last.push_str("<strong>");
                         } else {
-                            parsed[ind].push_str("</strong>");
+                            last.push_str("</strong>");
                         }
                     }
                     _=> {}
                 }
                 amount_of_underscores = 0;
+                last.push(c);
                 continue;
             }
-            if c == '*' && amount_of_asterisks < 3 {
+            if c == '*' && amount_of_asterisks < 2 {
                 amount_of_asterisks += 1;
                 continue;
             } else if amount_of_asterisks != 0 {
@@ -167,32 +170,37 @@ fn parse_paragraph(lines: &Vec<&str>, start_line: usize) -> Vec<String> {
                     1=> {
                         italic = !italic;
                         if !italic {
-                            parsed[ind].push_str("</em>");
+                            last.push_str("</em>");
                         } else {
-                            parsed[ind].push_str("<em>");
+                            last.push_str("<em>");
                         }
                     }
                     2=> {
                         bold = !bold;
                         if bold {
-                            parsed[ind].push_str("<strong>");
+                            last.push_str("<strong>");
                         } else {
-                            parsed[ind].push_str("</strong>");
+                            last.push_str("</strong>");
                         }
                     }
                     _=> {}
                 }
                 amount_of_asterisks = 0;
+                last.push(c);
                 continue;
             }
-            parsed[ind].push(c);
+
+            if c != '_' && c != '*' {
+                last.push(c);
+                continue;
+            }
         }
         if to_be_parsed[ind].ends_with("  ") {
-            parsed[ind] = parsed[ind].trim_end().to_string();
-            parsed[ind].push_str("<br>");
+            last.truncate(last.trim_end().len());
+            last.push_str("<br>");
         }
         if to_be_parsed[ind].trim_start().starts_with("> ") {
-            parsed[ind] = format!("<blockquote>{}</blockquote>", &to_be_parsed[ind].trim_start()[2..] );
+            *last = format!("{}<blockquote>{}</blockquote>", indent, &to_be_parsed[ind].trim_start()[2..] );
         }
         ind += 1;
     }
@@ -244,7 +252,7 @@ fn main() {
     // for line in &v {
     //     println!("{line}");
     // }
-    let v = vec!("__sigma rizz__ is so *tuff* like", "```", "ohio на боге", "```", "and what alex 67 said", "> gooon", "67  ");
+    let v = vec!("__sigma rizz__ is so *tuff* like", "```", "ohio на боге", "```", "and what alex 67 said", "> gooon", "67  ", "- goon", "- goon", "1. 67", "4. 41");
     let out = parse_paragraph(&v, 0);
     for line in out {
         println!("{}", line.as_str());

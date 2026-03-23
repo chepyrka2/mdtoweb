@@ -282,7 +282,7 @@ fn parse_table(lines: &Vec<&str>, start_line: usize) -> Vec<String> {
     parsed
 }
 
-fn get_header(line: &str) -> (u8, bool){
+fn get_header(line: &str) -> (u8, bool, String){
     let mut hashtags: u8 = 0;
     let mut is_header = false;
 
@@ -296,7 +296,7 @@ fn get_header(line: &str) -> (u8, bool){
             break;
         }
     }
-    (hashtags, is_header)
+    (hashtags, is_header, line[hashtags as usize+1..].to_string())
 }
 
 fn parse_link(line: &str) -> (String, String) {
@@ -312,14 +312,19 @@ fn parse_link(line: &str) -> (String, String) {
             writing_text = true;
             continue;
         }
-        if writing_text {
-            text.push(c);
-        }
         if c == ']' && writing_text {
             writing_text = false;
+            continue;
         }
         if c == '(' && !writing_text && !writing_link && did_write_text {
             writing_link = true;
+            continue;
+        }
+        if c == ')' && writing_link {
+            break;
+        }
+        if writing_text {
+            text.push(c);
         }
         if writing_link {
             link.push(c);
@@ -330,11 +335,53 @@ fn parse_link(line: &str) -> (String, String) {
 
 }
 
-fn main() {
+fn parse (lines: Vec<&str>, title: String) -> Vec<String> {
+    let to_be_parsed = lines.clone();
+    let mut parsed = vec![
+        "<!DOCTYPE html>".to_string(),
+        "<html>".to_string(),
+        "    <head>".to_string(),
+        format!("        <title>{title}</title>"),
+        "        <meta charset=\"utf-8\">".to_string(),
+        "    </head>".to_string(),
+        "    <body>".to_string()
+    ];
+    let mut body: Vec<String> = Vec::new();
+    for i in 0..to_be_parsed.len() {
+        body.push(String::new());
+        if to_be_parsed[i].starts_with("#") {
+            let header = get_header(to_be_parsed[i]);
+            if header.1 {
+                body[i] = format!("<h{}>{}</h{}>", header.0, header.2, header.0);
+                continue;
+            }
+        }
 
-    let v = vec!("The *freak*iness is unmatched", "```", "ohio на боге", "```", "and what alex 67 said", "> gooon", "67  ", "- goon", "- goon", "1. 67", "4. 41");
-    let out = parse_paragraph(&v, 0);
-    for line in out.0 {
-        println!("{}", line.as_str());
+        if to_be_parsed[i].chars().all(|c| matches!(c, '_' | '-' | '*')) && to_be_parsed[i].len() >= 3{
+            let mut is_up_clear = false;
+            let mut is_down_clear = false;
+
+            if i == 0 {
+                is_up_clear = true;
+            } else if to_be_parsed[i-1].trim().is_empty() {
+                is_up_clear = true;
+            }
+
+            if i == to_be_parsed.len() - 1 {
+                is_down_clear = true;
+            } else if to_be_parsed[i+1].trim().is_empty() {
+                is_down_clear = true;
+            }
+
+            if is_down_clear && is_up_clear {
+                body[i] = "<hr>".to_string();
+                continue;
+            }
+        }
+
     }
+    parsed
+}
+
+fn main() {
 }

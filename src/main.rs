@@ -84,7 +84,7 @@ fn parse_ul(lines: &Vec<&str>, start_line: usize) -> (Vec<String>, usize) {
 }
 
 
-fn parse_paragraph(lines: &Vec<&str>, start_line: usize) -> Vec<String> {
+fn parse_paragraph(lines: &Vec<&str>, start_line: usize) -> ( Vec<String>, usize ) {
     let to_be_parsed = Vec::from( &lines[start_line..]);
     let mut parsed = vec!(String::from("<p>"));
     let mut italic = false;
@@ -109,8 +109,11 @@ fn parse_paragraph(lines: &Vec<&str>, start_line: usize) -> Vec<String> {
             continue;
         }
 
-        if to_be_parsed[ind].chars().next().expect( format!("Cant get first char! Problematic line: {}", to_be_parsed[ind]).as_str() )== '-' {
-            let ul = parse_ul(&to_be_parsed, ind);
+        if to_be_parsed[ind].starts_with("- ") {
+            let mut ul = parse_ul(&to_be_parsed, ind);
+            ul.0 = ul.0.iter().map(
+                |x| format!("    {}", x)
+            ).collect::<Vec<_>>();
             parsed.extend(ul.0);
             ind += ul.1;
             continue;
@@ -118,6 +121,9 @@ fn parse_paragraph(lines: &Vec<&str>, start_line: usize) -> Vec<String> {
 
         if is_ol(to_be_parsed[ind]) {
             let mut ol = parse_ol(&to_be_parsed, ind);
+            ol.0 = ol.0.iter().map(
+                |x| format!("    {}", x)
+            ).collect::<Vec<_>>();
             parsed.extend(ol.0);
             ind += ol.1;
             continue;
@@ -135,7 +141,7 @@ fn parse_paragraph(lines: &Vec<&str>, start_line: usize) -> Vec<String> {
                 }
                 continue;
             }
-            if c == '_' && amount_of_underscores < 2 {
+            if c == '_' {
                 amount_of_underscores += 1;
                 continue;
             } else if amount_of_underscores != 0 {
@@ -156,13 +162,28 @@ fn parse_paragraph(lines: &Vec<&str>, start_line: usize) -> Vec<String> {
                             last.push_str("</strong>");
                         }
                     }
+                    3=> {
+                        bold = !bold;
+                        italic = !italic;
+
+                        if bold {
+                            last.push_str("<strong>");
+                        } else {
+                            last.push_str("</strong>");
+                        }
+                        if !italic {
+                            last.push_str("</em>");
+                        } else {
+                            last.push_str("<em>");
+                        }
+                    }
                     _=> {}
                 }
                 amount_of_underscores = 0;
                 last.push(c);
                 continue;
             }
-            if c == '*' && amount_of_asterisks < 2 {
+            if c == '*' {
                 amount_of_asterisks += 1;
                 continue;
             } else if amount_of_asterisks != 0 {
@@ -176,6 +197,21 @@ fn parse_paragraph(lines: &Vec<&str>, start_line: usize) -> Vec<String> {
                         }
                     }
                     2=> {
+                        bold = !bold;
+                        if bold {
+                            last.push_str("<strong>");
+                        } else {
+                            last.push_str("</strong>");
+                        }
+                    }
+                    3=> {
+                        italic = !italic;
+                        if !italic {
+                            last.push_str("</em>");
+                        } else {
+                            last.push_str("<em>");
+                        }
+
                         bold = !bold;
                         if bold {
                             last.push_str("<strong>");
@@ -205,7 +241,7 @@ fn parse_paragraph(lines: &Vec<&str>, start_line: usize) -> Vec<String> {
         ind += 1;
     }
     parsed.push("</p>".to_string());
-    parsed
+    ( parsed, ind )
 }
 
 fn parse_table(lines: &Vec<&str>, start_line: usize) -> Vec<String> {
@@ -246,15 +282,59 @@ fn parse_table(lines: &Vec<&str>, start_line: usize) -> Vec<String> {
     parsed
 }
 
+fn get_header(line: &str) -> (u8, bool){
+    let mut hashtags: u8 = 0;
+    let mut is_header = false;
+
+    for c in line.chars() {
+        if c == '#' {
+            hashtags += 1;
+        } else {
+            if c == ' ' {
+                is_header = true;
+            }
+            break;
+        }
+    }
+    (hashtags, is_header)
+}
+
+fn parse_link(line: &str) -> (String, String) {
+    let mut text = String::new();
+    let mut link = String::new();
+    let mut writing_text = false;
+    let mut writing_link = false;
+    let mut did_write_text = false;
+
+    for c in line.chars() {
+        if c == '[' && !did_write_text {
+            did_write_text = true;
+            writing_text = true;
+            continue;
+        }
+        if writing_text {
+            text.push(c);
+        }
+        if c == ']' && writing_text {
+            writing_text = false;
+        }
+        if c == '(' && !writing_text && !writing_link && did_write_text {
+            writing_link = true;
+        }
+        if writing_link {
+            link.push(c);
+        }
+    }
+
+    (text, link)
+
+}
+
 fn main() {
-    // let v = vec!("|Roblox|67|", "|---|---|", "|Hello|World|", "|---|---|");
-    // let v = parse_table(&v, 0);
-    // for line in &v {
-    //     println!("{line}");
-    // }
-    let v = vec!("__sigma rizz__ is so *tuff* like", "```", "ohio на боге", "```", "and what alex 67 said", "> gooon", "67  ", "- goon", "- goon", "1. 67", "4. 41");
+
+    let v = vec!("The *freak*iness is unmatched", "```", "ohio на боге", "```", "and what alex 67 said", "> gooon", "67  ", "- goon", "- goon", "1. 67", "4. 41");
     let out = parse_paragraph(&v, 0);
-    for line in out {
+    for line in out.0 {
         println!("{}", line.as_str());
     }
 }

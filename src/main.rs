@@ -1,3 +1,21 @@
+fn normalise_string(string: &String) -> String {
+    let mut str = String::new();
+    for c in &mut string.chars() {
+        if c.is_whitespace() {
+            str.push('-');
+            continue;
+        }
+        if c.is_ascii_alphabetic() {
+            str.push(c.to_ascii_lowercase());
+            continue;
+        }
+        if c.is_ascii_graphic() {
+            str.push(c.to_ascii_lowercase());
+        }
+    }
+    str
+}
+
 fn strip_ordered_list_prefix(s: &str) -> Option<&str> {
     let mut chars = s.char_indices().peekable();
 
@@ -52,6 +70,35 @@ fn is_ol(line: &str) -> bool {
     }
 
     false // дошли до конца строки без точки
+}
+
+fn is_table (lines: Vec<&str>) -> bool {
+    if lines.len() <= 1 {
+        return false;
+    }
+    let mut header_count = 0;
+    for c in lines[0].chars().skip(1) {
+        if c == '|' {
+            header_count += 1;
+        }
+    }
+    let mut hyphen_count = 0;
+
+    for c in lines[1].chars().skip(1) {
+        if c == '-' {
+            hyphen_count += 1;
+        }
+        if c == '|' {
+            if hyphen_count != 3 {
+                return false;
+            }
+            header_count -= 1;
+            hyphen_count = 0;
+        }
+    }
+
+    return header_count == 0;
+
 }
 
 fn parse_ol(lines: &Vec<&str>,  start_line: usize) -> (Vec<String>, usize) {
@@ -238,13 +285,19 @@ fn parse_paragraph(lines: &Vec<&str>, start_line: usize) -> ( Vec<String>, usize
         if to_be_parsed[ind].trim_start().starts_with("> ") {
             *last = format!("{}<blockquote>{}</blockquote>", indent, &to_be_parsed[ind].trim_start()[2..] );
         }
+        if italic {
+            last.push_str("</em>");
+        }
+        if bold {
+            last.push_str("</strong>");
+        }
         ind += 1;
     }
     parsed.push("</p>".to_string());
     ( parsed, ind )
 }
 
-fn parse_table(lines: &Vec<&str>, start_line: usize) -> Vec<String> {
+fn parse_table(lines: &Vec<&str>, start_line: usize) -> (Vec<String>, usize) {
     let mut parsed = vec!(String::from("<table>"));
     let to_be_parsed = &lines[start_line..];
     parsed.push(String::from("    <thead>"));
@@ -262,10 +315,14 @@ fn parse_table(lines: &Vec<&str>, start_line: usize) -> Vec<String> {
     parsed.push(String::from("    </thead>"));
     parsed.push(String::from("    <tbody>"));
     head = String::new();
-    let mut ind = 1;
-    while ind * 2 < to_be_parsed.len() && !to_be_parsed[ind*2].is_empty() {
+    let mut ind = 2;
+    while ind < to_be_parsed.len() && !to_be_parsed[ind].is_empty() {
+        if to_be_parsed[ind].contains("|---|") {
+            ind += 1;
+            continue
+        }
         parsed.push(String::from("        <tr>"));
-        for c in to_be_parsed[ind*2].chars().skip(1) {
+        for c in to_be_parsed[ind].chars().skip(1) {
             if c == '|' {
                 parsed.push(format!("            <td>{head}</td>"));
                 head = String::new();
@@ -279,7 +336,7 @@ fn parse_table(lines: &Vec<&str>, start_line: usize) -> Vec<String> {
     }
     parsed.push(String::from("    </tbody>"));
     parsed.push(String::from("</table>"));
-    parsed
+    (parsed, ind)
 }
 
 fn get_header(line: &str) -> (u8, bool, String){
@@ -299,12 +356,13 @@ fn get_header(line: &str) -> (u8, bool, String){
     (hashtags, is_header, line[hashtags as usize+1..].to_string())
 }
 
-fn parse_link(line: &str) -> (String, String) {
+fn parse_link(line: &str) -> (String, String, bool) {
     let mut text = String::new();
     let mut link = String::new();
     let mut writing_text = false;
     let mut writing_link = false;
     let mut did_write_text = false;
+    let mut did_write_link = false;
 
     for c in line.chars() {
         if c == '[' && !did_write_text {
@@ -321,6 +379,7 @@ fn parse_link(line: &str) -> (String, String) {
             continue;
         }
         if c == ')' && writing_link {
+            did_write_link = true;
             break;
         }
         if writing_text {
@@ -331,7 +390,7 @@ fn parse_link(line: &str) -> (String, String) {
         }
     }
 
-    (text, link)
+    (text, link, did_write_link&&did_write_text)
 
 }
 
@@ -347,41 +406,99 @@ fn parse (lines: Vec<&str>, title: String) -> Vec<String> {
         "    <body>".to_string()
     ];
     let mut body: Vec<String> = Vec::new();
-    for i in 0..to_be_parsed.len() {
-        body.push(String::new());
-        if to_be_parsed[i].starts_with("#") {
-            let header = get_header(to_be_parsed[i]);
-            if header.1 {
-                body[i] = format!("<h{}>{}</h{}>", header.0, header.2, header.0);
-                continue;
-            }
+    let mut i = 0;
+
+    while i < to_be_parsed.len() {
+        if to_be_parsed[i].trim().is_empty() {
+            i += 1;
+            continue;
         }
 
-        if to_be_parsed[i].chars().all(|c| matches!(c, '_' | '-' | '*')) && to_be_parsed[i].len() >= 3{
+        if to_be_parsed[i].starts_with("|") {
+            let mut end = i + 1;
+
+            while end < to_be_parsed.len() && to_be_parsed[end].starts_with("|") {
+                end += 1;
+            }
+
+            let table_lines = &to_be_parsed[i..end];
+
+            if is_table(table_lines.to_vec()) {
+                let table = parse_table(&table_lines.to_vec(), 0);
+                body.extend(table.0);
+                i = end;
+                body.push(String::new());
+                i += 1;
+                continue;
+            }
+        } else if to_be_parsed[i].chars().all(|c| matches!(c, '_' | '-' | '*'))
+            && to_be_parsed[i].len() >= 3
+        {
             let mut is_up_clear = false;
             let mut is_down_clear = false;
 
-            if i == 0 {
-                is_up_clear = true;
-            } else if to_be_parsed[i-1].trim().is_empty() {
+            if i == 0 || to_be_parsed[i - 1].trim().is_empty() {
                 is_up_clear = true;
             }
 
-            if i == to_be_parsed.len() - 1 {
-                is_down_clear = true;
-            } else if to_be_parsed[i+1].trim().is_empty() {
+            if i == to_be_parsed.len() - 1 || to_be_parsed[i + 1].trim().is_empty() {
                 is_down_clear = true;
             }
 
             if is_down_clear && is_up_clear {
-                body[i] = "<hr>".to_string();
+                body.push("<hr>".to_string());
+                i += 1;
                 continue;
             }
         }
 
+        body.push(String::new());
+
+        if to_be_parsed[i].starts_with("#") {
+            let header = get_header(to_be_parsed[i]);
+            if header.1 {
+                body[i] = format!(
+                    "<h{} id=\"{}\">{}</h{}>",
+                    header.0,
+                    normalise_string(&header.2),
+                    header.2,
+                    header.0
+                );
+                i += 1;
+                continue;
+            }
+        }
+
+
+
+
+
+        let paragraph = parse_paragraph(&to_be_parsed.to_vec(), i);
+        body.extend(paragraph.0);
+        i += paragraph.1;
     }
+    body = body.iter().map(|str| format!("        {}", str)).collect::<Vec<_>>();
+    parsed.extend(body);
+    parsed.push("    </body>".to_string());
+    parsed.push("</html>".to_string());
     parsed
 }
 
 fn main() {
+    let md = vec![
+        "## DougDoug",
+        "**Doug** doug doug *doug*",
+        "",
+        "|Doug|Doug|",
+        "|---|---|",
+        "|67|41|",
+        "",
+        "---",
+        "",
+        "67 pocoyo"
+    ];
+    let md = parse(md, "Doug...".to_string());
+    for line in md {
+        println!("{line}");
+    }
 }

@@ -131,6 +131,44 @@ fn parse_ul(lines: &Vec<&str>, start_line: usize) -> (Vec<String>, usize) {
 }
 
 
+fn parse_link(line: &str) -> (String, String, bool) {
+    let mut text = String::new();
+    let mut link = String::new();
+    let mut writing_text = false;
+    let mut writing_link = false;
+    let mut did_write_text = false;
+    let mut did_write_link = false;
+
+    for c in line.chars() {
+        if c == '[' && !did_write_text {
+            did_write_text = true;
+            writing_text = true;
+            continue;
+        }
+        if c == ']' && writing_text {
+            writing_text = false;
+            continue;
+        }
+        if c == '(' && !writing_text && !writing_link && did_write_text {
+            writing_link = true;
+            continue;
+        }
+        if c == ')' && writing_link {
+            did_write_link = true;
+            break;
+        }
+        if writing_text {
+            text.push(c);
+        }
+        if writing_link {
+            link.push(c);
+        }
+    }
+
+    (text, link, did_write_link&&did_write_text)
+
+}
+
 fn parse_paragraph(lines: &Vec<&str>, start_line: usize) -> ( Vec<String>, usize ) {
     let to_be_parsed = Vec::from( &lines[start_line..]);
     let mut parsed = vec!(String::from("<p>"));
@@ -356,43 +394,6 @@ fn get_header(line: &str) -> (u8, bool, String){
     (hashtags, is_header, line[hashtags as usize+1..].to_string())
 }
 
-fn parse_link(line: &str) -> (String, String, bool) {
-    let mut text = String::new();
-    let mut link = String::new();
-    let mut writing_text = false;
-    let mut writing_link = false;
-    let mut did_write_text = false;
-    let mut did_write_link = false;
-
-    for c in line.chars() {
-        if c == '[' && !did_write_text {
-            did_write_text = true;
-            writing_text = true;
-            continue;
-        }
-        if c == ']' && writing_text {
-            writing_text = false;
-            continue;
-        }
-        if c == '(' && !writing_text && !writing_link && did_write_text {
-            writing_link = true;
-            continue;
-        }
-        if c == ')' && writing_link {
-            did_write_link = true;
-            break;
-        }
-        if writing_text {
-            text.push(c);
-        }
-        if writing_link {
-            link.push(c);
-        }
-    }
-
-    (text, link, did_write_link&&did_write_text)
-
-}
 
 fn parse (lines: Vec<&str>, title: String) -> Vec<String> {
     let to_be_parsed = lines.clone();

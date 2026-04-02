@@ -98,7 +98,6 @@ fn is_table (lines: Vec<&str>) -> bool {
     }
 
     return header_count == 0;
-
 }
 
 fn parse_ol(lines: &Vec<&str>,  start_line: usize) -> (Vec<String>, usize) {
@@ -132,40 +131,48 @@ fn parse_ul(lines: &Vec<&str>, start_line: usize) -> (Vec<String>, usize) {
 
 
 fn parse_link(line: &str) -> (String, String, bool) {
+    let line: Vec<char> = line.chars().collect();
     let mut text = String::new();
     let mut link = String::new();
     let mut writing_text = false;
     let mut writing_link = false;
     let mut did_write_text = false;
-    let mut did_write_link = false;
+    let mut is_link = false;
+    let mut escaped = false;
 
-    for c in line.chars() {
-        if c == '[' && !did_write_text {
-            did_write_text = true;
+    for i in 0..line.len() {
+        if line[i] == '\\' && !escaped {
+            escaped = true;
+            continue;
+        }
+        if line[i] == '[' && !escaped && !writing_text && !did_write_text{
             writing_text = true;
             continue;
         }
-        if c == ']' && writing_text {
+        if line[i] == ']' && !escaped && writing_text {
             writing_text = false;
-            continue;
+            did_write_text = true;
+            if i == line.len() - 1 && line[i+1] != '(' {
+                break;
+            }
         }
-        if c == '(' && !writing_text && !writing_link && did_write_text {
+        if line[i] == '(' && !escaped && did_write_text && !writing_link {
             writing_link = true;
+            is_link = true;
             continue;
         }
-        if c == ')' && writing_link {
-            did_write_link = true;
+        if line[i] == ')' && !escaped && writing_link {
             break;
         }
         if writing_text {
-            text.push(c);
+            text.push(line[i]);
+        } else if writing_link {
+            link.push(line[i]);
         }
-        if writing_link {
-            link.push(c);
-        }
+        escaped = false;
     }
 
-    (text, link, did_write_link&&did_write_text)
+    (text, link, is_link)
 
 }
 
@@ -175,6 +182,9 @@ fn parse_paragraph(lines: &Vec<&str>, start_line: usize) -> ( Vec<String>, usize
     let mut italic = false;
     let mut bold = false;
     let mut code = false;
+    let mut escape = false;
+    let mut image = false;
+    let mut skip = 0;
     let mut ind = 0;
     let mut amount_of_underscores = 0;
     let mut amount_of_asterisks = 0;
@@ -215,21 +225,19 @@ fn parse_paragraph(lines: &Vec<&str>, start_line: usize) -> ( Vec<String>, usize
         }
 
         for c in to_be_parsed[ind].chars() {
-            if c == '\\' && (amount_of_asterisks != 0 || amount_of_underscores != 0) {
-                for _ in 0..amount_of_underscores {
-                    last.push('_');
-                    amount_of_underscores -= 1;
-                }
-                for _ in 0..amount_of_asterisks {
-                    last.push('*');
-                    amount_of_asterisks -= 1;
-                }
+            if skip > 0 {
+                skip -= 1;
                 continue;
             }
-            if c == '_' {
+
+            if c == '\\' && !escape {
+                escape = true;
+                continue;
+            }
+            if c == '_' && !escape {
                 amount_of_underscores += 1;
                 continue;
-            } else if amount_of_underscores != 0 {
+            } else if amount_of_underscores != 0 && !escape {
                 match amount_of_underscores {
                     1=> {
                         italic = !italic;
@@ -268,10 +276,10 @@ fn parse_paragraph(lines: &Vec<&str>, start_line: usize) -> ( Vec<String>, usize
                 last.push(c);
                 continue;
             }
-            if c == '*' {
+            if c == '*' && !escape {
                 amount_of_asterisks += 1;
                 continue;
-            } else if amount_of_asterisks != 0 {
+            } else if amount_of_asterisks != 0 && !escape {
                 match amount_of_asterisks {
                     1=> {
                         italic = !italic;
@@ -311,10 +319,32 @@ fn parse_paragraph(lines: &Vec<&str>, start_line: usize) -> ( Vec<String>, usize
                 continue;
             }
 
-            if c != '_' && c != '*' {
+            if c == '!' && !escape {
+                image = true;
+                continue;
+            }
+
+            if c == '[' && !escape {
+                let link = parse_link(to_be_parsed[ind]);
+                if link.2 {
+                    if image {
+                        last.push_str(format!("<img src=\"{}\">", {link.1.clone()}).as_str());
+                    } else {
+                        last.push_str(format!("<a href=\"{}\">{}</a>", link.1.clone(), link.0.clone()).as_str());
+                    }
+                    skip += 4+link.0.len()+link.1.len();
+                    continue;
+                } else {
+                    last.push('!')
+                }
+            }
+            image = false;
+            if (c != '_' && c != '*') || escape {
+                escape = false;
                 last.push(c);
                 continue;
             }
+
         }
         if to_be_parsed[ind].ends_with("  ") {
             last.truncate(last.trim_end().len());
@@ -403,6 +433,10 @@ fn parse (lines: Vec<&str>, title: String) -> Vec<String> {
         "    <head>".to_string(),
         format!("        <title>{title}</title>"),
         "        <meta charset=\"utf-8\">".to_string(),
+        "        <link rel=\"preconnect\" href=\"https://fonts.googleapis.com\">".to_string(),
+        "        <link rel=\"preconnect\" href=\"https://fonts.gstatic.com\" crossorigin>".to_string(),
+        "        <link href=\"https://fonts.googleapis.com/css2?family=Geologica:wght,CRSV@100..900,0&display=swap\" rel=\"stylesheet\">".to_string(),
+        "        <link rel=\"stylesheet\" href=:::\"style.css\">".to_string(),
         "    </head>".to_string(),
         "    <body>".to_string()
     ];
@@ -485,21 +519,111 @@ fn parse (lines: Vec<&str>, title: String) -> Vec<String> {
     parsed
 }
 
-fn main() {
-    let md = vec![
-        "## DougDoug",
-        "**Doug** doug doug *doug*",
-        "",
-        "|Doug|Doug|",
-        "|---|---|",
-        "|67|41|",
-        "",
-        "---",
-        "",
-        "67 pocoyo"
-    ];
-    let md = parse(md, "Doug...".to_string());
-    for line in md {
-        println!("{line}");
+fn main() -> Result<(), Box<dyn std::error::Error>>{
+    let mut args: Vec<String> = std::env::args().collect();
+    let options = ["-o", "-t", "c"];
+    if args.contains(&String::from("-h")) || args.is_empty() {
+        print!("\
+        md2web by Chepyrka2, 2026\n\
+        OPTIONS:\n\
+        -h - help\n\
+        -i - input file\n\
+        -o - output directory\n\
+        -t - title\n\
+        -c - accent color (css value, like #0000FF or red)\n\
+        ");
+
+        return Ok(());
     }
+
+    let mut input_file = String::new();
+    let mut output_directory= String::from("md2web");
+    let mut title = String::from("md2web");
+
+    if let Some(input_file_index) = args.iter().position(|arg| arg == "-i") {
+        if input_file_index == args.len()-1 {
+            return Err("input file cannot be empty".into());
+        }
+        if args[input_file_index+1].starts_with("\"") {
+            for arg in &args[input_file_index+1..] {
+                if arg.starts_with("\"") {
+                    input_file.push_str(&arg[1..])
+                } else if arg.ends_with("\"") {
+                    input_file = String::from(&input_file[0..input_file.len() - 2]);
+                    break;
+                } else {
+                    input_file.push_str(arg);
+                }
+                input_file.push(' ');
+            }
+            for i in 0..input_file.chars().filter(|c| *c == ' ').count() {
+                args.remove(input_file_index);
+            }
+        }
+
+        else {
+            input_file = args[input_file_index+1].clone();
+        }
+        args.remove(input_file_index);
+        args.remove(input_file_index);
+    } else {
+        if args[0].starts_with("\"") {
+            for arg in &args {
+                if arg.starts_with("\"") {
+                    input_file.push_str(&arg[1..])
+                } else if arg.ends_with("\"") {
+                    input_file.push_str(arg);
+                    input_file = String::from(&input_file[0..input_file.len() - 2]);
+                    break;
+                } else {
+                    input_file.push_str(arg);
+                }
+                input_file.push(' ');
+            }
+            for i in 0..input_file.chars().filter(|c| *c == ' ').count() {
+                args.remove(0);
+            }
+        }
+        else {
+            input_file = args[0].clone();
+        }
+        args.remove(0);
+        args.remove(0);
+    }
+
+    if let Some(output_directory_index) = args.iter().position(|arg| arg == "-o") {
+        if output_directory_index == args.len()-1 {
+            return Err("output directory wasn't provided".into());
+        }
+        if args[output_directory_index+1].starts_with("\"") {
+            for arg in &args[output_directory_index+1..] {
+                if arg.starts_with("\"") {
+                    output_directory.push_str(&arg[1..]);
+                } else if arg.ends_with("\"") {
+                    output_directory.push_str(arg);
+                    output_directory = String::from(&output_directory[0..output_directory.len()-2]);
+                }
+                output_directory.push(' ');
+            }
+            for i in 0..output_directory.chars().filter(|c| *c == ' ').count() {
+                args.remove(output_directory_index);
+            }
+        }
+
+        else {
+            output_directory = args[output_directory_index+1].clone();
+        }
+        args.remove(output_directory_index);
+        args.remove(output_directory_index);
+    }
+
+    if let Some(title_index) = args.iter().position(|arg| arg == "-t") {
+        if title_index == args.len()-1 {
+            return Err("title wasn't provided".into());
+        }
+        if args[title_index+1].starts_with("\"") {
+        }
+    }
+
+    Ok(())
 }

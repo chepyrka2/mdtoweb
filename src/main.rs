@@ -1,3 +1,6 @@
+use std::fs;
+use std::io::{Write, Read};
+
 fn normalise_string(string: &String) -> String {
     let mut str = String::new();
     for c in &mut string.chars() {
@@ -152,8 +155,10 @@ fn parse_link(line: &str) -> (String, String, bool) {
         if line[i] == ']' && !escaped && writing_text {
             writing_text = false;
             did_write_text = true;
-            if i == line.len() - 1 && line[i+1] != '(' {
-                break;
+            if i != line.len() - 1 {
+                if  line[i+1] != '(' {
+                    break;
+                }
             }
         }
         if line[i] == '(' && !escaped && did_write_text && !writing_link {
@@ -299,17 +304,21 @@ fn parse_paragraph(lines: &Vec<&str>, start_line: usize) -> ( Vec<String>, usize
                     }
                     3=> {
                         italic = !italic;
+                        bold = !bold;
+                        if !bold {
+                            last.push_str("</strong>");
+                        }
+
                         if !italic {
                             last.push_str("</em>");
-                        } else {
+                        }
+
+                        if italic {
                             last.push_str("<em>");
                         }
 
-                        bold = !bold;
                         if bold {
                             last.push_str("<strong>");
-                        } else {
-                            last.push_str("</strong>");
                         }
                     }
                     _=> {}
@@ -328,7 +337,7 @@ fn parse_paragraph(lines: &Vec<&str>, start_line: usize) -> ( Vec<String>, usize
                 let link = parse_link(to_be_parsed[ind]);
                 if link.2 {
                     if image {
-                        last.push_str(format!("<img src=\"{}\">", {link.1.clone()}).as_str());
+                        last.push_str(format!("<img src=\"{}\" alt=\"{}\">", link.1, link.0).as_str());
                     } else {
                         last.push_str(format!("<a href=\"{}\">{}</a>", link.1.clone(), link.0.clone()).as_str());
                     }
@@ -436,7 +445,7 @@ fn parse (lines: Vec<&str>, title: String) -> Vec<String> {
         "        <link rel=\"preconnect\" href=\"https://fonts.googleapis.com\">".to_string(),
         "        <link rel=\"preconnect\" href=\"https://fonts.gstatic.com\" crossorigin>".to_string(),
         "        <link href=\"https://fonts.googleapis.com/css2?family=Geologica:wght,CRSV@100..900,0&display=swap\" rel=\"stylesheet\">".to_string(),
-        "        <link rel=\"stylesheet\" href=:::\"style.css\">".to_string(),
+        "        <link rel=\"stylesheet\" href=\"style.css\">".to_string(),
         "    </head>".to_string(),
         "    <body>".to_string()
     ];
@@ -521,7 +530,6 @@ fn parse (lines: Vec<&str>, title: String) -> Vec<String> {
 
 fn main() -> Result<(), Box<dyn std::error::Error>>{
     let mut args: Vec<String> = std::env::args().collect();
-    let options = ["-o", "-t", "c"];
     if args.contains(&String::from("-h")) || args.is_empty() {
         print!("\
         md2web by Chepyrka2, 2026\n\
@@ -539,6 +547,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>>{
     let mut input_file = String::new();
     let mut output_directory= String::from("md2web");
     let mut title = String::from("md2web");
+    let mut color = String::from("DodgerBlue");
+    let mut omit = false;
+
+    if let Some(_) = args.iter().position(|arg| arg == "--omit-folder-existance-check") {
+        omit = true;
+    }
 
     if let Some(input_file_index) = args.iter().position(|arg| arg == "-i") {
         if input_file_index == args.len()-1 {
@@ -556,7 +570,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>>{
                 }
                 input_file.push(' ');
             }
-            for i in 0..input_file.chars().filter(|c| *c == ' ').count() {
+            for _i in 0..input_file.chars().filter(|c| *c == ' ').count() {
                 args.remove(input_file_index);
             }
         }
@@ -572,15 +586,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>>{
                 if arg.starts_with("\"") {
                     input_file.push_str(&arg[1..])
                 } else if arg.ends_with("\"") {
-                    input_file.push_str(arg);
-                    input_file = String::from(&input_file[0..input_file.len() - 2]);
+                    input_file.push_str(&arg[0..arg.len()-2]);
                     break;
                 } else {
                     input_file.push_str(arg);
                 }
                 input_file.push(' ');
             }
-            for i in 0..input_file.chars().filter(|c| *c == ' ').count() {
+            for _i in 0..input_file.chars().filter(|c| *c == ' ').count() {
                 args.remove(0);
             }
         }
@@ -588,10 +601,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>>{
             input_file = args[0].clone();
         }
         args.remove(0);
-        args.remove(0);
     }
 
     if let Some(output_directory_index) = args.iter().position(|arg| arg == "-o") {
+        output_directory = String::new();
         if output_directory_index == args.len()-1 {
             return Err("output directory wasn't provided".into());
         }
@@ -600,12 +613,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>>{
                 if arg.starts_with("\"") {
                     output_directory.push_str(&arg[1..]);
                 } else if arg.ends_with("\"") {
+                    output_directory.push_str(&arg[0..arg.len() - 2]);
+                    break;
+                } else {
                     output_directory.push_str(arg);
-                    output_directory = String::from(&output_directory[0..output_directory.len()-2]);
                 }
                 output_directory.push(' ');
             }
-            for i in 0..output_directory.chars().filter(|c| *c == ' ').count() {
+            for _i in 0..output_directory.chars().filter(|c| *c == ' ').count() {
                 args.remove(output_directory_index);
             }
         }
@@ -618,11 +633,148 @@ fn main() -> Result<(), Box<dyn std::error::Error>>{
     }
 
     if let Some(title_index) = args.iter().position(|arg| arg == "-t") {
+        title = String::new();
         if title_index == args.len()-1 {
             return Err("title wasn't provided".into());
         }
         if args[title_index+1].starts_with("\"") {
+            for arg in &args[title_index+1..] {
+                if arg.starts_with("\"") {
+                    title.push_str(&arg[1..]);
+                } else if arg.ends_with("\"") {
+                    title.push_str(&arg[0..arg.len()-2]);
+                    break;
+                } else {
+                    title.push_str(arg);
+                }
+                title.push(' ');
+            }
+            for _i in 0..title.chars().filter(|c| *c == ' ').count() {
+                args.remove(title_index);
+            }
+        } else {
+            title = args[title_index+1].clone();
         }
+        args.remove(title_index);
+        args.remove(title_index);
+    }
+
+    if let Some(color_index) = args.iter().position(|arg| arg == "-c") {
+        if color_index == args.len()-1 {
+            return Err("accent color wasn't provided".into());
+        }
+        color = args[color_index+1].clone();
+        args.remove(color_index);
+        args.remove(color_index);
+    }
+
+    if !omit {
+        if fs::exists(&output_directory).expect("Check failed, use --omit-folder-existance-check flag") {
+            fs::remove_dir_all(&output_directory).expect(&format!("Folder {output_directory} exists!"));
+        }
+    }
+
+    fs::create_dir(&output_directory).expect(&format!("Cant remove the {output_directory} folder!"));
+
+    let mut css = fs::File::create(format!("{output_directory}/style.css")).expect("Cannot create style");
+    css.write_all(format!(r#"
+
+* {{
+  font-family: "Geologica", sans-serif;
+  font-optical-sizing: auto;
+  font-weight: 400;
+  font-style: normal;
+  font-variation-settings:
+    "slnt" 0,
+    "CRSV" 0,
+    "SHRP" 0;
+  font-size: 20px;
+  margin-left: 5px;
+}}
+
+h1, h2, h3, h4, h5, h6 {{
+  margin-left: 10px;
+  font-family: "Geologica", sans-serif;
+  font-optical-sizing: auto;
+  font-weight: 550;
+  font-style: normal;
+  font-variation-settings:
+    "slnt" 0,
+    "CRSV" 0,
+    "SHRP" 0;
+}}
+
+h1 {{
+  font-size: 50px;
+}}
+
+h2 {{
+  font-size: 40px;
+}}
+
+h3 {{
+  font-size: 30px;
+}}
+
+h4, h5, h6 {{
+  font-size: 25px;
+}}
+
+img {{
+  max-width: 80%;
+  margin: 30px 10%;
+  border-radius: 20px;
+}}
+
+strong {{
+  font-weight: 650;
+}}
+
+table, th, td {{
+  font-size: 25px;
+  border-collapse: collapse;
+  border: 2px solid #A0A0A0;
+}}
+
+th, td {{
+  padding: 8px;
+}}
+
+hr {{
+  border: 6px solid {color};
+  border-radius: 3px;
+  margin-top: 20px;
+  margin-bottom: 20px;
+}}
+
+pre {{
+  margin: 20px;
+  padding: 15px;
+  background-color: #1B1B1B;
+  border-radius: 20px;
+  color: #FFFAFA;
+}}
+a, strong, em {{
+    margin-left: 0;
+    padding-left: 0;
+}}
+"#).as_bytes())?;
+
+
+    let mut file = fs::File::open(&input_file)?;
+    let mut bytes = Vec::new();
+    file.read_to_end(&mut bytes)?;
+
+    // from_utf8_lossy заменит битые символы на �, но не упадёт
+    let content = String::from_utf8_lossy(&bytes);
+
+    let input_file_vec: Vec<&str> = content.lines().collect();
+
+    let parsed = parse(input_file_vec, title.clone());
+
+    let mut html = fs::File::create(format!("{output_directory}/index.html")).expect("Cannot create index");
+    for line in parsed {
+        html.write(format!("{line}\n").as_bytes())?;
     }
 
     Ok(())

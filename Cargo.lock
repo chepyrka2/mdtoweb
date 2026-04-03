@@ -3,5 +3,5 @@
 version = 4
 
 [[package]]
-name = "mdtohtml"
+name = "mdtoweb"
 version = "0.1.0"
